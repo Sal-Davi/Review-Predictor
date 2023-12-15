@@ -1,0 +1,119 @@
+# Databricks notebook source
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, isnan, when, count, udf, explode, col
+import json 
+import pandas as pd
+import requests
+import scipy
+import sklearn
+import seaborn as sns
+import matplotlib as mpl
+import plotly
+import boto3
+from pyspark.sql.functions import col, isnan, when, count, udf
+
+# COMMAND ----------
+
+sc.setLogLevel("ERROR")
+
+# COMMAND ----------
+
+import os
+# To work with Amazon S3 storage, set the following variables using your AWS
+# Set the Region to where your files are stored in S3.
+access_key = ''
+secret_key = ''
+# Set the environment variables so boto3 can pick them up later
+os.environ['AWS_ACCESS_KEY_ID'] = access_key
+os.environ['AWS_SECRET_ACCESS_KEY'] = secret_key
+encoded_secret_key = secret_key.replace("/", "%2F")
+aws_region = "us-east-2"
+# Update the Spark options to work with our AWS Credentials
+sc._jsc.hadoopConfiguration().set("fs.s3a.access.key", access_key)
+sc._jsc.hadoopConfiguration().set("fs.s3a.secret.key", secret_key)
+sc._jsc.hadoopConfiguration().set("fs.s3a.endpoint", "s3." + aws_region +
+".amazonaws.com")
+
+# COMMAND ----------
+
+sdf = spark.read.json(f"s3://steam-reviews-rh/landing/reviews_100.json")
+# Explode the "reviews" column and alias it as "all_reviews".  Then pick out all of the parts of the "author" document
+reviews_sdf = sdf.select(explode(col('reviews')).alias('all_reviews')).select("all_reviews.*", "author.last_played", "author.num_games_owned","author.num_reviews", "author.playtime_at_review", "author.playtime_forever", "author.playtime_last_two_weeks", "author.steamid")
+
+# Result should be a "flattened" record
+reviews_sdf.show(8)
+
+# COMMAND ----------
+
+# Look at the Review
+reviews_sdf.select("review", "weighted_vote_score").summary("count", "min", "max").show()
+
+# COMMAND ----------
+
+# Check for revieew, weighted_vote_score, num_reviews that have null values
+reviews_sdf.select([count(when(isnan(c) | col(c).isNull(), c)).alias(c) for c in ["review", "weighted_vote_score","num_reviews"]] ).show()
+
+# COMMAND ----------
+
+from pyspark.sql import functions as F
+#checking for null values
+
+null_counts = reviews_sdf.select([F.col(column).isNull().alias(column) for column in reviews_sdf.columns])
+
+# Count the total number null values in every column
+null_counts_row = null_counts.agg(*[F.count(F.when(F.col(column), column)).alias(column) for column in null_counts.columns])
+
+null_counts_row.show()
+
+
+
+# COMMAND ----------
+
+#dropping the columns steamid, written_during_early_access, steam_purchase & votes_funny.
+#These columns are columns not useful for later engineering & modeling processes
+columns_to_drop = ['written_during_early_access', 'steam_purchase', 'votes_funny', 'developer_response', 'timestamp_dev_responded']
+reviews_sdf = reviews_sdf.drop(*columns_to_drop)
+
+
+# COMMAND ----------
+
+reviews_sdf = reviews_sdf.filter(col("language") == "english")
+
+# Show the resulting DataFrame
+reviews_sdf.show()
+
+# COMMAND ----------
+
+# Replace null values with 0 in the specified columns
+reviews_sdf = reviews_sdf.fillna(0, subset=['playtime_at_review', 'playtime_last_two_weeks', 'last_played'])
+reviews_sdf.show(10)
+
+# COMMAND ----------
+
+
+null_counts = reviews_sdf.select([F.col(column).isNull().alias(column) for column in reviews_sdf.columns])
+
+# Count the total number null values in every column
+null_counts_row = null_counts.agg(*[F.count(F.when(F.col(column), column)).alias(column) for column in null_counts.columns])
+
+null_counts_row.show()
+
+
+# COMMAND ----------
+
+reviews_sdf.show(10)
+
+# COMMAND ----------
+
+# Write to a Parquet file in raw folder
+# Write to a Parquet file in raw folder
+# Change this to your bucket
+target_bucket = "steam-reviews-sd"  
+# Make sure you have a /raw folder in the bucket
+target_folder = "raw"            
+target_filename = "steam_reviews.parquet"
+
+# Assemble the file path so it looks like s3a://steam-reviews-rh/raw/steam_reviews.parquet
+output_file_path=f"s3a://steam-reviews-sd/raw/cleaned_steam_reviews.parquet"
+# Write the  data to the Parquet file.  Note it will be saved in multiple partitions
+reviews_sdf.write.mode("overwrite").parquet(output_file_path)
