@@ -5,7 +5,9 @@ Steam is a video game service that was developed by Valve Corporation. User's ar
 This project was created using the following Kaggle Dataset for Steam reviews: https://www.kaggle.com/datasets/souyama/steam-reviews
 AWS & databricks were utilized for this project. The dataset needed to be parsed(JSON) in AWS EC2 and was then stored in a S3 bucket. The S3 bucket was then referenced in the databricks notebooks to then load, clean, preprocess, train, evalute metric performance and visualizations to support our conclusion.
 
-The input include the 'review', 'label' (Positive review) and multiple date-times.
+The input include the 'review', 'label' (Positive review) and multiple date-times. Output was 'positive review'
+
+Linear Regression was used to predict the output value.
 
 
 AWS:
